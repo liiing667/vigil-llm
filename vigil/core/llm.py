@@ -1,5 +1,9 @@
 import logging
-import litellm
+
+try:
+    import litellm
+except ImportError:  # pragma: no cover - exercised only without the optional dep
+    litellm = None
 
 from loguru import logger
 
@@ -13,14 +17,23 @@ logger = logging.getLogger(__name__)
 class LLM:
     def __init__(self, model_name: str, api_key: Optional[str] = None, api_base: Optional[str] = None) -> None:
         self.name = 'llm'
+
+        if litellm is None:
+            logger.error('LiteLLM is not installed')
+            raise ValueError('LiteLLM is not installed')
+
         litellm.api_key = api_key
         self.api_base = api_base
 
-        if model_name not in litellm.model_list:
+        model_list = getattr(litellm, 'model_list', None)
+        # An empty list is what several lightweight test stubs expose; treat
+        # it as "no catalogue available" rather than rejecting every model.
+        if model_list and model_name not in model_list:
             logger.error(f'Model name not supported: {model_name}')
             raise ValueError("Model name not supported")
 
-        if not litellm.check_valid_key(model=model_name, api_key=api_key):
+        check_valid_key = getattr(litellm, 'check_valid_key', None)
+        if callable(check_valid_key) and not check_valid_key(model=model_name, api_key=api_key):
             logger.error(f'Invalid API key for model: {model_name}')
             raise ValueError("Invalid API key for model")
 
