@@ -42,7 +42,13 @@ class BaseScanner(ABC):
         self.name = name
 
     @abstractmethod
-    def analyze(self, scan_obj: ScanModel, scan_id: UUID = uuid4()) -> ScanModel:
+    def analyze(self, scan_obj: ScanModel, scan_id: UUID = None) -> ScanModel:
+        # NOTE: do not use ``uuid4()`` as a default argument.  A default
+        # value is evaluated exactly once when the class is defined, so every
+        # scan that relied on it would share the same id and concurrent
+        # requests could no longer be attributed to their own scan.
+        if scan_id is None:
+            scan_id = uuid4()
         raise NotImplementedError('This method needs to be overridden in the subclass.')
 
     def post_init(self):

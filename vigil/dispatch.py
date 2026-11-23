@@ -50,23 +50,34 @@ class Manager:
             status='success',
             prompt=prompt,
             prompt_response=prompt_response,
-            prompt_entropy=calculate_entropy(prompt),
+            prompt_entropy=None,
         )
 
         resp.uuid = str(resp.uuid)
 
         if not prompt:
+            resp.prompt_entropy = 0.0
             resp.errors.append('Input prompt value is empty')
             resp.status = 'failed'
             logger.error(f'{self.name} Input prompt value is empty')
             return resp.dict()
+
+        # An empty response is still a valid scan request: the response must
+        # keep the same prompt, scan id and consumer instead of being dropped
+        # or replaced by a previous request's data.
+        if prompt_response is not None and not str(prompt_response).strip():
+            resp.errors.append('Input prompt_response value is empty')
+            resp.status = 'partial_success'
+            logger.warning(f'{self.name} Input prompt_response value is empty id={resp.uuid}')
+
+        resp.prompt_entropy = calculate_entropy(prompt)
 
         logger.info(f'{self.name} Dispatching scan request id={resp.uuid}')
 
         scan_results = self.dispatcher.run(
             prompt=prompt,
             prompt_response=prompt_response,
-            scan_id={resp.uuid}
+            scan_id=resp.uuid
         )
 
         total_matches = 0
@@ -111,10 +122,13 @@ class Scanner:
         self.name = 'dispatch:scan'
         self.scanners = scanners
 
-    def run(self, prompt: str, scan_id: uuid.uuid4, prompt_response: str = None) -> Dict:
+    def run(self, prompt: str, scan_id: str, prompt_response: str = None) -> Dict:
         response = {}
 
         for scanner in self.scanners:
+            # A fresh ScanModel per scanner keeps each scanner's results tied
+            # to this (prompt, response, scan_id) tuple.  Scanners are shared
+            # singletons across requests, so no request data may live on them.
             scan_obj = ScanModel(
                 prompt=prompt,
                 prompt_response=prompt_response

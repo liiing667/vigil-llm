@@ -3,6 +3,7 @@ import os
 import sys
 import time
 import argparse
+import threading
 
 from loguru import logger
 
@@ -130,7 +131,10 @@ def analyze_response():
     out_data = check_field(request.json, 'response', str)
 
     start_time = time.time()
-    result = vigil.output_scanner.perform_scan(input_prompt, out_data)
+    # Each HTTP request gets its own scan: perform_scan generates a unique id
+    # and returns a fresh dict, so concurrent requests never share results.
+    with scan_lock:
+        result = vigil.output_scanner.perform_scan(input_prompt, out_data)
     result['elapsed'] = round((time.time() - start_time), 6)
 
     logger.info(f'({request.path}) Returning response')
@@ -144,19 +148,25 @@ def analyze_prompt():
     logger.info(f'({request.path}) Received scan request')
 
     input_prompt = check_field(request.json, 'prompt', str)
-    cached_response = lru_cache.get(input_prompt)
 
-    if cached_response:
-        logger.info(f'({request.path}) Found response in cache!')
-        cached_response['cached'] = True
-        return jsonify(cached_response)
+    with scan_lock:
+        cached_response = lru_cache.get(input_prompt)
 
-    start_time = time.time()
-    result = vigil.input_scanner.perform_scan(input_prompt)
-    result['elapsed'] = round((time.time() - start_time), 6)
+        if cached_response:
+            logger.info(f'({request.path}) Found response in cache!')
+            # Flag the copy returned by the cache; the stored report stays
+            # untouched so history and other concurrent consumers keep seeing
+            # the original request result.
+            cached_response['cached'] = True
+            cached_response['elapsed'] = 0.0
+            return jsonify(cached_response)
 
-    logger.info(f'({request.path}) Returning response')
-    lru_cache.set(input_prompt, result)
+        start_time = time.time()
+        result = vigil.input_scanner.perform_scan(input_prompt)
+        result['elapsed'] = round((time.time() - start_time), 6)
+
+        logger.info(f'({request.path}) Returning response')
+        lru_cache.set(input_prompt, result)
 
     return jsonify(result)
 
@@ -176,6 +186,11 @@ if __name__ == '__main__':
     vigil = Vigil.from_config(args.config)
 
     lru_cache = LRUCache(capacity=100)
+    # Serialize scans against the shared scanner instances.  Every scan still
+    # gets its own uuid/prompt/response tuple; the lock only prevents two
+    # worker threads from interleaving inside a shared scanner/client while a
+    # failed request is retried.
+    scan_lock = threading.RLock()
 
     app.run(host='0.0.0.0', use_reloader=True)
 
