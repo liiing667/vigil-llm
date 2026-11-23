@@ -13,6 +13,7 @@ from vigil.core.vectordb import VectorDB
 from vigil.core.embedding import Embedder
 
 from vigil.registry import ScannerRegistry
+from vigil.registry import RegistryError
 
 
 class Vigil:
@@ -21,6 +22,10 @@ class Vigil:
 
     def __init__(self, config_path: str):
         self._config = Config(config_path)
+        # Pin the registry generation used for this whole application:
+        # registration, config resolution, instance creation and reporting
+        # all observe the same set of scanner classes.
+        self._registry_snapshot = ScannerRegistry.snapshot()
         self._initialize_vectordb()
         self._initialize_embedder()
         
@@ -57,8 +62,8 @@ class Vigil:
 
         for name in scanner_names:
             try:
-                metadata = ScannerRegistry.get_scanner_metadata(name)
-            except ValueError as err:
+                metadata = self._registry_snapshot.get_scanner_metadata(name)
+            except RegistryError as err:
                 logger.error(err)
                 raise err
 
@@ -75,7 +80,7 @@ class Vigil:
             if metadata.get('requires_embedding', False):
                 embedder = self.embedder
 
-            scanner = ScannerRegistry.create_scanner(
+            scanner = self._registry_snapshot.create_scanner(
                 name=name,
                 config=scanner_config,
                 vectordb=vectordb,

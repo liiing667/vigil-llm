@@ -37,7 +37,11 @@ class Config:
             return default
 
     def get_scanner_config(self, scanner_name):
-        return {key: self.get_val(f'scanner:{scanner_name}', key) for key in self.config.options(f'scanner:{scanner_name}')}
+        section = f'scanner:{scanner_name}'
+        if not self.config.has_section(section):
+            logger.error(f'Config file missing section: {section}')
+            return {}
+        return {key: self.get_val(section, key) for key in self.config.options(section)}
 
     def get_general_config(self):
         return {section: dict(self.config.items(section)) for section in self.config.sections()}

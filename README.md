@@ -338,3 +338,31 @@ curl http://localhost:5000/settings
   }
 }
 ```
+
+## Development 🧰
+
+### Scanner registry
+
+Scanners register themselves with the `ScannerRegistry` through the
+`@Registration.scanner` decorator. The registry is generation-aware:
+
+* registering a name that already exists in the current generation raises
+  `DuplicateRegistrationError` instead of silently replacing the class
+* reserved metadata keys (`class`, `generation`, `requires_config`,
+  `requires_vectordb`, `requires_embedding`) cannot be supplied as extra
+  metadata
+* `ScannerRegistry.snapshot()` pins a generation; configuration resolution,
+  instance creation and reporting all use the same snapshot, and a snapshot
+  raises `StaleRegistrationError` once the registry is rebuilt
+* `ScannerRegistry.reset_registry()` starts a new generation; call
+  `vigil.load_builtin_scanners(force=True)` to re-register the built-in
+  plug-ins against it
+
+### Running tests
+
+The registry test suite uses only the Python standard library and can run
+without the scanner model dependencies installed:
+
+```bash
+python3 -m unittest discover -s tests
+```
