@@ -81,7 +81,9 @@ class Manager:
                     total_matches += 1
 
         for scanner_name, message in messages.items():
-            if scanner_name in scan_results and len(scan_results[scanner_name]) > 0 \
+            if scanner_name in scan_results \
+                    and 'error' not in scan_results[scanner_name] \
+                    and len(scan_results[scanner_name]) > 0 \
                     and message not in resp.messages:
                 resp.messages.append(message)
 
