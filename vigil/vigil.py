@@ -11,8 +11,21 @@ from vigil.core.config import Config
 from vigil.core.canary import CanaryTokens
 from vigil.core.vectordb import VectorDB
 from vigil.core.embedding import Embedder
+from vigil.core.cache import compute_generation
 
 from vigil.registry import ScannerRegistry
+
+
+SECRET_HINTS = ('key', 'secret', 'token', 'password')
+
+
+def _redact_secrets(section: Dict) -> Dict:
+    """Drop secret-looking values so they neither leak into nor needlessly
+    churn the generation fingerprint."""
+    return {
+        k: v for k, v in section.items()
+        if not any(hint in k.lower() for hint in SECRET_HINTS)
+    }
 
 
 class Vigil:
@@ -95,8 +108,37 @@ class Vigil:
             scanners=scanners,
             auto_update=auto_update,
             update_threshold=update_threshold,
-            db_client=self.vectordb if auto_update else None
+            db_client=self.vectordb if auto_update else None,
+            generation=self._manager_generation(name, scanners)
         )
+
+    def _manager_generation(self, name: str, scanners: List[BaseScanner]) -> str:
+        """Fingerprint binding this manager's scanner set and the config
+        sections that influence scan outcomes. Any config or scanner-set
+        change produces a new generation, so stale cache entries keyed under
+        an older generation are never read."""
+        general = self._config.get_general_config()
+
+        scanner_configs = {}
+        for scanner in scanners:
+            section = scanner.name  # e.g. 'scanner:yara'
+            if self._config.config.has_section(section):
+                scanner_configs[section] = _redact_secrets(
+                    self._config.get_scanner_config(section.split(':', 1)[1])
+                )
+
+        material = {
+            'manager': name,
+            'scanners': [scanner.name for scanner in scanners],
+            'scanner_configs': scanner_configs,
+            'embedding': _redact_secrets(general.get('embedding', {})),
+            'vectordb': _redact_secrets(general.get('vectordb', {})),
+            'auto_update': general.get('auto_update', {}),
+        }
+
+        generation = compute_generation(material)
+        logger.info(f'dispatch:{name} Pipeline generation: {generation}')
+        return generation
 
     @staticmethod
     def from_config(config_path: str) -> 'Vigil':

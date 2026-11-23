@@ -8,7 +8,7 @@ from loguru import logger
 
 from flask import Flask, request, jsonify, abort
 
-from vigil.core.cache import LRUCache
+from vigil.core.cache import LRUCache, make_cache_key
 from vigil.common import timestamp_str
 from vigil.vigil import Vigil
 
@@ -129,11 +129,23 @@ def analyze_response():
     input_prompt = check_field(request.json, 'prompt', str)
     out_data = check_field(request.json, 'response', str)
 
+    cache_key = make_cache_key(
+        vigil.output_scanner.generation, input_prompt, out_data
+    )
+    cached_response = lru_cache.get(cache_key) if lru_cache else None
+
+    if cached_response:
+        logger.info(f'({request.path}) Found response in cache!')
+        cached_response['cached'] = True
+        return jsonify(cached_response)
+
     start_time = time.time()
     result = vigil.output_scanner.perform_scan(input_prompt, out_data)
     result['elapsed'] = round((time.time() - start_time), 6)
 
     logger.info(f'({request.path}) Returning response')
+    if lru_cache:
+        lru_cache.set(cache_key, result)
 
     return jsonify(result)
 
@@ -144,7 +156,8 @@ def analyze_prompt():
     logger.info(f'({request.path}) Received scan request')
 
     input_prompt = check_field(request.json, 'prompt', str)
-    cached_response = lru_cache.get(input_prompt)
+    cache_key = make_cache_key(vigil.input_scanner.generation, input_prompt)
+    cached_response = lru_cache.get(cache_key) if lru_cache else None
 
     if cached_response:
         logger.info(f'({request.path}) Found response in cache!')
@@ -156,7 +169,8 @@ def analyze_prompt():
     result['elapsed'] = round((time.time() - start_time), 6)
 
     logger.info(f'({request.path}) Returning response')
-    lru_cache.set(input_prompt, result)
+    if lru_cache:
+        lru_cache.set(cache_key, result)
 
     return jsonify(result)
 
@@ -175,7 +189,12 @@ if __name__ == '__main__':
 
     vigil = Vigil.from_config(args.config)
 
-    lru_cache = LRUCache(capacity=100)
+    use_cache = vigil._config.get_bool('main', 'use_cache', default=True)
+    cache_max = vigil._config.get_val('main', 'cache_max')
+    cache_max = int(cache_max) if cache_max is not None else 100
+
+    lru_cache = LRUCache(capacity=cache_max) if use_cache else None
+    logger.info(f'Response cache enabled={use_cache} capacity={cache_max}')
 
     app.run(host='0.0.0.0', use_reloader=True)
 

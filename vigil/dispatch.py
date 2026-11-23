@@ -3,13 +3,14 @@ import math
 
 from loguru import logger
 
-from typing import List, Dict
+from typing import List, Dict, Optional
 
 from vigil.schema import BaseScanner
 from vigil.schema import ScanModel
 from vigil.schema import ResponseModel
 
 from vigil.common import timestamp_str
+from vigil.core.cache import compute_generation
 
 
 messages = {
@@ -32,12 +33,19 @@ class Manager:
                  auto_update: bool = False,
                  update_threshold: int = 3,
                  db_client=None,
-                 name: str = 'input'):
+                 name: str = 'input',
+                 generation: Optional[str] = None):
         self.name = f'dispatch:{name}'
         self.dispatcher = Scanner(scanners)
         self.auto_update = auto_update
         self.update_threshold = update_threshold
         self.db_client = db_client
+        # Generation shared by request identity, cache entries and responses.
+        # Falls back to a fingerprint of this manager's scanner set.
+        self.generation = generation or compute_generation({
+            'manager': name,
+            'scanners': [scanner.name for scanner in scanners],
+        })
 
         if self.auto_update:
             if self.db_client is None:
@@ -48,6 +56,7 @@ class Manager:
     def perform_scan(self, prompt: str, prompt_response: str = None) -> dict:
         resp = ResponseModel(
             status='success',
+            generation=self.generation,
             prompt=prompt,
             prompt_response=prompt_response,
             prompt_entropy=calculate_entropy(prompt),

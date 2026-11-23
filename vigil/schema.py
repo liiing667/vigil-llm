@@ -28,6 +28,7 @@ class ScanModel(BaseModel):
 class ResponseModel(BaseModel):
     status: StatusEmum = StatusEmum.SUCCESS
     uuid: UUID = Field(default_factory=uuid4)
+    generation: Optional[str] = None
     timestamp: str = Field(default_factory=timestamp_str)
     prompt: str = ''
     prompt_response: Optional[str] = None
