@@ -1,4 +1,3 @@
-import uuid
 import math
 
 from loguru import logger
@@ -8,6 +7,8 @@ from typing import List, Dict
 from vigil.schema import BaseScanner
 from vigil.schema import ScanModel
 from vigil.schema import ResponseModel
+from vigil.schema import ScannerResultModel
+from vigil.schema import StatusEmum
 
 from vigil.common import timestamp_str
 
@@ -57,7 +58,7 @@ class Manager:
 
         if not prompt:
             resp.errors.append('Input prompt value is empty')
-            resp.status = 'failed'
+            resp.status = StatusEmum.FAILED
             logger.error(f'{self.name} Input prompt value is empty')
             return resp.dict()
 
@@ -66,27 +67,56 @@ class Manager:
         scan_results = self.dispatcher.run(
             prompt=prompt,
             prompt_response=prompt_response,
-            scan_id={resp.uuid}
+            scan_id=resp.uuid
         )
 
         total_matches = 0
+        total_scanners = 0
+        failed_scanners = 0
 
         for scanner_name, results in scan_results.items():
-            if 'error' in results:
-                resp.status = 'partial_success'
+            total_scanners += 1
+
+            if isinstance(results, dict) and results.get('error'):
+                failed_scanners += 1
                 resp.errors.append(f'Error in {scanner_name}: {results["error"]}')
+                resp.results[scanner_name] = ScannerResultModel(
+                    status=StatusEmum.FAILED,
+                    matches=[],
+                    error=results['error']
+                )
             else:
-                resp.results[scanner_name] = {'matches': results}
-                if len(results) > 0 and scanner_name != 'scanner:sentiment':
+                matches = results.get('matches') if isinstance(results, dict) else results
+                if matches is None:
+                    matches = []
+                resp.results[scanner_name] = ScannerResultModel(
+                    status=StatusEmum.SUCCESS,
+                    matches=matches
+                )
+                if len(matches) > 0 and scanner_name != 'scanner:sentiment':
                     total_matches += 1
 
+        if total_scanners > 0 and failed_scanners == total_scanners:
+            resp.status = StatusEmum.FAILED
+        elif failed_scanners > 0:
+            resp.status = StatusEmum.PARTIAL
+
         for scanner_name, message in messages.items():
-            if scanner_name in scan_results and len(scan_results[scanner_name]) > 0 \
+            scanner_result = resp.results.get(scanner_name)
+            if scanner_result is not None and len(scanner_result.matches) > 0 \
                     and message not in resp.messages:
                 resp.messages.append(message)
 
         logger.info(f'{self.name} Total scanner matches: {total_matches}')
-        if self.auto_update and (total_matches >= self.update_threshold):
+        if self.auto_update and failed_scanners > 0:
+            logger.info(
+                f'{self.name} (auto-update) Skipping incomplete scan; '
+                f'failed_scanners={failed_scanners} id={resp.uuid}'
+            )
+
+        if (self.auto_update and self.db_client is not None
+                and failed_scanners == 0
+                and total_matches >= self.update_threshold):
             logger.info(f'{self.name} (auto-update) Adding detected prompt to db id={resp.uuid}')
             doc_id = self.db_client.add_texts(
                 [prompt],
@@ -111,7 +141,7 @@ class Scanner:
         self.name = 'dispatch:scan'
         self.scanners = scanners
 
-    def run(self, prompt: str, scan_id: uuid.uuid4, prompt_response: str = None) -> Dict:
+    def run(self, prompt: str, scan_id: str, prompt_response: str = None) -> Dict:
         response = {}
 
         for scanner in self.scanners:
@@ -124,11 +154,17 @@ class Scanner:
                 logger.info(f'Running scanner: {scanner.name}; id={scan_id}')
 
                 updated = scanner.analyze(scan_obj, scan_id)
-                response[scanner.name] = [res.dict() for res in updated.results]
+                response[scanner.name] = ScannerResultModel(
+                    status=StatusEmum.SUCCESS,
+                    matches=[res.dict() for res in updated.results]
+                ).dict()
                 logger.success(f'Successfully ran scanner: {scanner.name} id={scan_id}')
 
             except Exception as err:
                 logger.error(f'Failed to run scanner: {scanner.name}, Error: {str(err)} id={scan_id}')
-                response[scanner.name] = {'error': str(err)}
+                response[scanner.name] = ScannerResultModel(
+                    status=StatusEmum.FAILED,
+                    error=str(err)
+                ).dict()
 
         return response

@@ -25,6 +25,13 @@ class ScanModel(BaseModel):
     results: List[Dict[str, Any]] = []
 
 
+class ScannerResultModel(BaseModel):
+    """ Normalized result returned by an individual scanner. """
+    status: StatusEmum = StatusEmum.SUCCESS
+    matches: List[Dict[str, Any]] = []
+    error: Optional[str] = None
+
+
 class ResponseModel(BaseModel):
     status: StatusEmum = StatusEmum.SUCCESS
     uuid: UUID = Field(default_factory=uuid4)
@@ -34,7 +41,7 @@ class ResponseModel(BaseModel):
     prompt_entropy: Optional[float] = None
     messages: List[str] = []
     errors: List[str] = []
-    results: Dict[str, List[Dict[str, Any]]] = {}
+    results: Dict[str, ScannerResultModel] = {}
 
 
 class BaseScanner(ABC):
