@@ -10,6 +10,23 @@ The canary tokens functionality is available as:
 
 Adding a canary token will generate a unique 16 character string within the header `<-@!-- {canary} --@!->` and prefixed to your full prompt.
 
+### Request-scoped tokens
+
+Tokens are bound to a request identity so that concurrent or alternating
+requests can never reuse each other's tokens. Pass a `request_id` to
+`CanaryTokens.add()` and reuse the same value in `check()`:
+
+```python
+updated_prompt = app.canary_tokens.add(prompt=prompt, request_id=request_id)
+found = app.canary_tokens.check(prompt=llm_response, request_id=request_id)
+```
+
+The `/canary/add` endpoint mints and returns a `request_id` when one is not
+supplied, and `/canary/check` accepts the same optional field. When
+`request_id` is omitted, both the library methods and the API fall back to
+the legacy behavior of checking the global token list, so existing clients
+continue to work unchanged.
+
 You can use these in two different detection workflows:
 * Prompt leakage
 * Goal hijacking

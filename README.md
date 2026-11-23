@@ -146,14 +146,17 @@ app.output_scanner.perform_scan(
 )
 
 # use canary tokens and returned updated prompt as a string
+# pass a request_id so the token is bound to this request and cannot be
+# reused by another request; omit it to keep the legacy global behavior
 updated_prompt = app.canary_tokens.add(
     prompt=prompt,
     always=always if always else False,
     length=length if length else 16, 
     header=header if header else '<-@!-- {canary} --@!->',
+    request_id=request_id,
 )
 # returns True if a canary is found
-result = app.canary_tokens.check(prompt=llm_response)
+result = app.canary_tokens.check(prompt=llm_response, request_id=request_id)
 ```
 
 ## Detection Methods 🔍
@@ -210,9 +213,14 @@ Add a canary token to a prompt
 
 **arguments:**
 * **prompt**: str: prompt to add canary to
+* **request_id**: str: identity the token is bound to; one is generated and returned when omitted (optional)
 * **always**: bool: add prefix to always include canary in LLM response (optional)
 * **length**: str: canary token length (optional, default 16)
 * **header**: str: canary header string (optional, default `<-@!-- {canary} --@!->`)
+
+The response includes a `request_id`. Reuse that value when calling `/canary/check`
+so only tokens minted for the same request are considered; tokens can never be
+matched by a different (e.g. alternating) request.
 
 ```bash
 curl -X POST "http://127.0.0.1:5000/canary/add" \
@@ -229,6 +237,7 @@ Check if an output contains a canary token
 
 **arguments:**
 * **prompt**: str: prompt to check for canary
+* **request_id**: str: only match tokens bound to this request; omit to fall back to the legacy global token list (optional)
 
 ```bash
 curl -X POST "http://127.0.0.1:5000/canary/check" \

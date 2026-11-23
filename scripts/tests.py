@@ -18,6 +18,14 @@ def test_canary_tokens():
     add_result = app.canary_tokens.add('Application prompt here')
     app.canary_tokens.check(add_result)
 
+    # request-scoped tokens: a token is only visible to its own request id
+    request_id = 'test-request-id'
+    scoped_result = app.canary_tokens.add(
+        'Application prompt here', request_id=request_id
+    )
+    assert app.canary_tokens.check(scoped_result, request_id=request_id)
+    assert not app.canary_tokens.check(scoped_result, request_id='other-request')
+
 
 if __name__ == '__main__':
     try:

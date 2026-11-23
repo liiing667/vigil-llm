@@ -46,14 +46,17 @@ class Manager:
                 logger.info(f'{self.name} Auto-update vectordb enabled: threshold={self.update_threshold}')
 
     def perform_scan(self, prompt: str, prompt_response: str = None) -> dict:
+        # One identity per request; every scanner invocation below and the
+        # final response share this exact id.
+        request_id = str(uuid.uuid4())
+
         resp = ResponseModel(
             status='success',
             prompt=prompt,
             prompt_response=prompt_response,
             prompt_entropy=calculate_entropy(prompt),
         )
-
-        resp.uuid = str(resp.uuid)
+        resp.uuid = request_id
 
         if not prompt:
             resp.errors.append('Input prompt value is empty')
@@ -66,19 +69,31 @@ class Manager:
         scan_results = self.dispatcher.run(
             prompt=prompt,
             prompt_response=prompt_response,
-            scan_id={resp.uuid}
+            scan_id=request_id
         )
 
         total_matches = 0
+        failed_scanners = 0
+        total_scanners = 0
 
         for scanner_name, results in scan_results.items():
+            total_scanners += 1
             if 'error' in results:
+                failed_scanners += 1
                 resp.status = 'partial_success'
                 resp.errors.append(f'Error in {scanner_name}: {results["error"]}')
             else:
                 resp.results[scanner_name] = {'matches': results}
                 if len(results) > 0 and scanner_name != 'scanner:sentiment':
                     total_matches += 1
+
+        # If every scanner failed, the request did not succeed: report
+        # 'failed' instead of the default 'success'. A mix of successes
+        # and failures remains 'partial_success'.
+        if total_scanners > 0 and failed_scanners == total_scanners:
+            resp.status = 'failed'
+        elif failed_scanners > 0:
+            resp.status = 'partial_success'
 
         for scanner_name, message in messages.items():
             if scanner_name in scan_results and len(scan_results[scanner_name]) > 0 \
@@ -111,7 +126,7 @@ class Scanner:
         self.name = 'dispatch:scan'
         self.scanners = scanners
 
-    def run(self, prompt: str, scan_id: uuid.uuid4, prompt_response: str = None) -> Dict:
+    def run(self, prompt: str, scan_id: str, prompt_response: str = None) -> Dict:
         response = {}
 
         for scanner in self.scanners:

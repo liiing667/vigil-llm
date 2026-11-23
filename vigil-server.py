@@ -3,6 +3,7 @@ import os
 import sys
 import time
 import argparse
+import uuid
 
 from loguru import logger
 
@@ -52,21 +53,30 @@ def add_canary():
     logger.info(f'({request.path}) Adding canary token to prompt')
 
     prompt = check_field(request.json, 'prompt', str)
+    request_id = check_field(request.json, 'request_id', str, required=False)
     always = check_field(request.json, 'always', bool, required=False)
     length = check_field(request.json, 'length', int, required=False)
     header = check_field(request.json, 'header', str, required=False)
+
+    # Mint a request identity when the caller did not supply one, and bind
+    # the generated token to it. The token can never be reused by another
+    # (e.g. alternating) request.
+    if request_id is None:
+        request_id = str(uuid.uuid4())
 
     updated_prompt = vigil.canary_tokens.add(
         prompt=prompt,
         always=always if always else False,
         length=length if length else 16, 
         header=header if header else '<-@!-- {canary} --@!->',
+        request_id=request_id,
     )
     logger.info(f'({request.path}) Returning response')
 
     return jsonify(
         {
             'success': True,
+            'request_id': request_id,
             'timestamp': timestamp_str(),
             'result': updated_prompt
         }
@@ -79,8 +89,12 @@ def check_canary():
     logger.info(f'({request.path}) Checking prompt for canary token')
 
     prompt = check_field(request.json, 'prompt', str)
+    # When a request_id is supplied only that request's tokens are checked.
+    # When omitted, fall back to the legacy global token list so existing
+    # clients (including the old /canary/check flow) keep working.
+    request_id = check_field(request.json, 'request_id', str, required=False)
 
-    result = vigil.canary_tokens.check(prompt=prompt)
+    result = vigil.canary_tokens.check(prompt=prompt, request_id=request_id)
     if result:
         message = 'Canary token found in prompt'
     else:
@@ -91,6 +105,7 @@ def check_canary():
     return jsonify(
         {
             'success': True,
+            'request_id': request_id,
             'timestamp': timestamp_str(),
             'result': result,
             'message': message
@@ -148,6 +163,11 @@ def analyze_prompt():
 
     if cached_response:
         logger.info(f'({request.path}) Found response in cache!')
+        # A cache hit is still a new request: give it its own identity and
+        # timestamp. The LRU cache returns an independent copy, so marking
+        # this response as cached cannot leak into other requests.
+        cached_response['uuid'] = str(uuid.uuid4())
+        cached_response['timestamp'] = timestamp_str()
         cached_response['cached'] = True
         return jsonify(cached_response)
 

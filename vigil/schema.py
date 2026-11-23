@@ -42,7 +42,9 @@ class BaseScanner(ABC):
         self.name = name
 
     @abstractmethod
-    def analyze(self, scan_obj: ScanModel, scan_id: UUID = uuid4()) -> ScanModel:
+    def analyze(self, scan_obj: ScanModel, scan_id: str = None) -> ScanModel:
+        if scan_id is None:
+            scan_id = str(uuid4())
         raise NotImplementedError('This method needs to be overridden in the subclass.')
 
     def post_init(self):
