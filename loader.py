@@ -11,9 +11,8 @@ from vigil.core.vectordb import VectorDB
 
 
 def setup_vectordb(conf: Config) -> VectorDB:
-    full_config = conf.get_general_config()
-    params = full_config.get('vectordb', {})
-    params.update(full_config.get('embedding', {}))
+    params = conf.get_section('vectordb')
+    params.update(conf.get_section('embedding'))
     return VectorDB(**params)
 
 

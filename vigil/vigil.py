@@ -41,15 +41,17 @@ class Vigil:
             scanners=self._output_scanners
         )
 
+    @property
+    def config(self) -> Config:
+        return self._config
+
     def _initialize_embedder(self):
-        full_config = self._config.get_general_config()
-        params = full_config.get('embedding', {})
+        params = self._config.get_section('embedding')
         self.embedder = Embedder(**params)
 
     def _initialize_vectordb(self):
-        full_config = self._config.get_general_config()
-        params = full_config.get('vectordb', {})
-        params.update(full_config.get('embedding', {}))
+        params = self._config.get_section('vectordb')
+        params.update(self._config.get_section('embedding'))
         self.vectordb = VectorDB(**params)
 
     def _setup_scanners(self, scanner_names: List[str]) -> List[BaseScanner]:
@@ -86,9 +88,9 @@ class Vigil:
         return scanners
 
     def _create_manager(self, name: str, scanners: List[BaseScanner]) -> Manager:
-        manager_config = self._config.get_general_config()
-        auto_update = manager_config.get('auto_update', {}).get('enabled', False)
-        update_threshold = int(manager_config.get('auto_update', {}).get('threshold', 3))
+        update_config = self._config.get_section('auto_update')
+        auto_update = update_config.get('enabled', False)
+        update_threshold = int(update_config.get('threshold', 3))
 
         return Manager(
             name=name,

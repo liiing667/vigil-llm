@@ -29,7 +29,7 @@ class VectorDB:
                 model_name='text-embedding-ada-002'
             )
         else:
-            logger.info(f'Using SentenceTransformer embedding function: {config_dict["embed_fn"]}')
+            logger.info(f'Using SentenceTransformer embedding function: {model}')
             self.embed_fn = embedding_functions.SentenceTransformerEmbeddingFunction(
                 model_name=model
             )

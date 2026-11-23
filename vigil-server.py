@@ -38,12 +38,7 @@ def check_field(data, field_name: str, field_type: type, required: bool = True) 
 def show_settings():
     """ Return the current configuration settings """
     logger.info(f'({request.path}) Returning config dictionary')
-    config_dict = {s: dict(vigil.config.config.items(s)) for s in vigil.config.config.sections()}
-
-    if 'embedding' in config_dict:
-        config_dict['embedding'].pop('openai_api_key', None)
-
-    return jsonify(config_dict)
+    return jsonify(vigil.config.get_public_config())
 
 
 @app.route('/canary/add', methods=['POST'])
